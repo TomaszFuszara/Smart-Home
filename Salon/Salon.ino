@@ -6,7 +6,6 @@
  * na podstawie danych z serwera. Komunikuje się z serwerem HTTP i wysyła dane JSON.
  */
 
-#include <ESP32Servo.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <Wire.h> 
@@ -15,9 +14,6 @@
 #include <Stepper.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-
-/// @brief Serwomechanizm (niewykorzystany w tej wersji kodu)
-Servo serwomechanizm;
 
 /// @brief Interfejs OneWire do czujnika DS18B20
 OneWire oneWire(5); // A5
@@ -55,7 +51,7 @@ const char* ssid = "ESP32-Network";
 /// @brief Hasło do sieci WiFi
 const char* password = "Esp32-Password";
 
-/// @brief Adres IP serwera (np. centralny kontroler)
+/// @brief Adres IP serwera (centralny kontroler)
 const char* serverIP = "192.168.10.1";
 
 /// @brief Pin do sterowania roletą w jedną stronę
@@ -216,10 +212,12 @@ void checkServerStatus() {
 
 /**
  * @brief Wysyła dane z czujników do serwera w formacie JSON.
- * 
- * @param tempSalon Temperatura [°C] w salonie
- * @param wilgSalon Wilgotność [%] w salonie
- * @param jasnSalon Jasność [lux] w salonie
+ *
+ * Wysyła temperaturę, wilgotność i jasność z sypialni do endpointu HTTP `/status`.
+ *
+ * @param tempSypialnia Temperatura odczytana z czujnika DS18B20
+ * @param wilgSypialnia Wilgotność z czujnika DHT11 
+ * @param jasnSypialnia Jasność w luksach z czujnika LDR
  */
 void sendSensorData(float tempSalon, float wilgSalon, float jasnSalon) {
   if (WiFi.status() == WL_CONNECTED) {

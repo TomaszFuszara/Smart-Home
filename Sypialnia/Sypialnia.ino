@@ -1,12 +1,11 @@
 /**
- * @file Sy[pialnia.ino
- * @brief Sterowanie oświetleniem Sypialni z poziomu serwera i pobieranie danych pomiarowych z czujników.
+ * @file Sypialnia.ino
+ * @brief System zarządzania środowiskiem sypialni oparty na ESP32.
  * 
- * Po połączeniu z WiFi urządzenie ESP32 cyklicznie pobiera status oświetlenia z serwera
- * i steruje odpowiednimi pinami GPIO w zależności od odebranych danych oraz odbiera dane pomiarowe z czujników zapisane w pliku JSON.
+ * Monitoruje temperaturę, wilgotność i jasność. Steruje termostatem i roletami
+ * na podstawie danych z serwera. Komunikuje się z serwerem HTTP i wysyła dane JSON.
  */
 
-#include <ESP32Servo.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <Wire.h> 
@@ -16,44 +15,79 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-// Serwo i czujniki
-Servo serwomechanizm;
+/// @brief Interfejs OneWire do czujnika DS18B20
 OneWire oneWire(5); // A5
+
+/// @brief Obiekt do obsługi czujnika temperatury DS18B20
 DallasTemperature sensors(&oneWire);
+
+/// @brief Adres czujnika DS18B20
 DeviceAddress T = {0x28, 0x35, 0x5B, 0x7B, 0x0F, 0x00, 0x00, 0x9E};
+
+/// @brief Obiekt czujnika wilgotności DHT11 (GPIO 4)
 DHT dht(4, DHT11);
 
+/// @brief Rezystor towarzyszący fotorezystorowi (ohm)
 #define OTHER_RESISTOR 10000
+
+/// @brief Pin analogowy używany do odczytu fotorezystora
 #define USED_PIN 35
+
+/// @brief Typ używanego fotorezystora
 #define USED_PHOTOCELL LightDependentResistor::GL5537_2
+
+/// @brief Obiekt do pomiaru jasności w lux
 LightDependentResistor photocell(USED_PIN, OTHER_RESISTOR, USED_PHOTOCELL, 10, 10);
 
-// Silnik krokowy
+/// @brief Ilość kroków na pełen obrót dla silnika krokowego 28BYJ-48
 #define Kroki 2048
+
+/// @brief Obiekt silnika krokowego do regulacji termostatu
 Stepper SilnikTermostat(Kroki, 13, 26, 27, 25);
 
-// WiFi i serwer
+/// @brief SSID sieci WiFi
 const char* ssid = "ESP32-Network";
+
+/// @brief Hasło do sieci WiFi
 const char* password = "Esp32-Password";
+
+/// @brief Adres IP serwera (centralny kontroler)
 const char* serverIP = "192.168.10.1";
 
-// Wyjścia
+/// @brief Pin odpowiadający za światło nr 1 w sypialni
 const int pinSypialnia1 = 15;
+
+/// @brief Pin odpowiadający za światło nr 2 w sypialni
 const int pinSypialnia2 = 32;
+
+/// @brief Pin do sterowania roletą w jedną stronę
 const int pinRolety1 = 14;
+
+/// @brief Pin do sterowania roletą w przeciwną stronę
 const int pinRolety2 = 33;
 
+/// @brief Czas ostatniego sprawdzenia serwera
 unsigned long lastCheck = 0;
+
+/// @brief Interwał czasowy między zapytaniami HTTP (ms)
 const unsigned long interval = 1000; // 1s
 
+/// @brief Stan termostatu w salonie (z serwera)
 int sypialniaTermostatStan;
+
+/// @brief Poprzedni stan termostatu (do wykrywania zmian)
 int poprzedniStanTermostatu = 2; //2 to nieużywana wartość różna od 0 i różna od 1
 
+/// @brief Stan rolet w salonie (z serwera)
 int sypialniaRoletyStan;
+
+/// @brief Poprzedni stan rolet (do wykrywania zmian)
 int poprzedniStanRolet = 2; //2 to nieużywana wartość różna od 0 i różna od 1
 
 /**
- * @brief Inicjalizuje komponenty systemu: GPIO, czujniki, WiFi.
+ * @brief Inicjalizacja systemu.
+ * 
+ * Ustawia tryby pinów, uruchamia czujniki i nawiązuje połączenie WiFi.
  */
 void setup() {
   Serial.begin(115200);
@@ -81,7 +115,9 @@ void setup() {
 }
 
 /**
- * @brief Główna pętla programu. Czyta dane z czujników i synchronizuje stan z serwerem.
+ * @brief Główna pętla systemu.
+ * 
+ * Regularnie odczytuje dane z czujników, wysyła je do serwera i pobiera stany urządzeń.
  */
 void loop() {
   if (millis() - lastCheck >= interval) {
@@ -106,9 +142,9 @@ void loop() {
 }
 
 /**
- * @brief Pobiera status z serwera i steruje urządzeniami (termoregulator, rolety, światła).
- *
- * Odczytuje dane z serwera HTTP i w zależności od ich zawartości steruje podłączonymi urządzeniami.
+ * @brief Sprawdza status urządzeń z serwera i reaguje na zmiany.
+ * 
+ * Obsługuje zmiany w stanie świateł, termostatu i rolet na podstawie danych z serwera.
  */
 void checkServerStatus() {
   if (WiFi.status() == WL_CONNECTED) {
@@ -121,6 +157,7 @@ void checkServerStatus() {
       String payload = http.getString();
       Serial.println("Status z serwera: " + payload);
 
+      //Światła
       int states[11];
       int fromIndex = 0;
       for (int i = 0; i < 11; i++) {
@@ -134,6 +171,7 @@ void checkServerStatus() {
       digitalWrite(pinSypialnia1, states[0] ? HIGH : LOW);
       digitalWrite(pinSypialnia2, states[1] ? HIGH : LOW);
 
+      // Termostat
       sypialniaTermostatStan = states[2];
       if(sypialniaTermostatStan == 0 && poprzedniStanTermostatu != 0) {
         SilnikTermostat.setSpeed(10);
@@ -155,6 +193,7 @@ void checkServerStatus() {
 
       poprzedniStanTermostatu = sypialniaTermostatStan;
 
+      // Rolety
       sypialniaRoletyStan = states[3];
       if(sypialniaRoletyStan == 0 && poprzedniStanRolet != 0) {
         digitalWrite(pinRolety1, HIGH);
